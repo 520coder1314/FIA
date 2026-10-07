@@ -10,3 +10,7 @@ data/
 .env
 *.pem
 *.key
+.venv/
+build/
+dist/
+*.egg-info/

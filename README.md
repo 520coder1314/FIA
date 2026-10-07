@@ -1,141 +1,158 @@
-# FIA core v2
+<div align="center">
 
-This is the revised core implementation for new experiments. It lives in `fia_core/`.
-Historical `apply_backdoor_to_distilled_data.py` and its artifacts are retained separately.
-**Published manuscript numbers are not outputs of this revision.** New results must be
-identified by their own manifest. No FLBA implementation or baseline measurements are
-changed by this release.
+# FIA
+### Find · Inject · Attack
 
-## What is aligned
+**Backdoor learning and persistence in downstream fine-tuning on distilled data**
 
-- Find: frozen clean proxy centroids; Euclidean distances; quantiles over unique
-  undirected pairs; both directions exported. Geometry does not select a winner.
-  Candidate injection/fine-tuning must be evaluated; `select` then maximizes mean ASR−FTR.
-- Inject: one tensor per modified shard, per-image soft channel-gating masks,
-  target classification, direction/norm/raw alignment, TV, projected Adam.
-- Attack: complete shard set, relabeled selected items, cyclic saved-pattern reuse.
-  Downstream VLM training uses your existing SWIFT workflow; foundation models and
-  runners are not bundled in this minimal release.
-- Backbone weights and BN buffers remain fixed during head fitting. The classifier,
-  saliency calculation and alignment all use one explicit preprocessing route.
-- The mask is the paper's channel-gating construction, not standard Grad-CAM++.
-- `--quality-mode stop_gradient` matches the current manuscript's *gradient semantics*.
-  `--quality-mode differentiable` restores a differentiable PSNR/SSIM objective as
-  an explicit alternative. It requires new evidence and a corresponding method update.
-  Neither mode is a bit-for-bit historical replay: corrected preprocessing, frozen BN,
-  Gaussian-window SSIM and an explicit optimizer schedule define the new implementation.
+[Quick start](#quick-start) · [Method](#method) · [Reproduce](docs/REPRODUCING.md) · [中文说明](docs/README_zh.md)
 
-## Install and test
+</div>
 
-Python >=3.10; PyTorch >=2.5. Tested locally with Python 3.10 / torch 2.5.1+cu124.
-No network downloads or automatic pretrained-weight fallback happen at runtime.
+<p align="center">
+  <img src="assets/framework_archived.png" width="100%" alt="FIA overview: selecting a class pair, injecting a backdoor into distilled data, and evaluating downstream behavior" />
+</p>
+<p align="center"><sub>Archived author-confirmed overview (October 6, 2026). The subsequent hand-drawn revision is pending the original image file; this is not labeled as that revision.</sub></p>
+
+FIA selects a candidate class pair, constructs masked backdoor patterns in distilled
+images, and evaluates their effect after downstream vision–language model fine-tuning.
+This repository provides the **revised research core**: explicit pair screening,
+measured-margin selection, fixed-proxy injection, and saved-pattern reuse.
+
+> **Release scope.** This is a revised implementation for new experiments. It does
+> not reproduce the manuscript's historical numbers automatically. Distilled data,
+> proxy weights, victim weights, and downstream SWIFT training/evaluation runners
+> are not bundled. See [required assets](docs/ASSETS.md) and
+> [implementation changes](docs/REPRODUCIBILITY.md).
+
+## Method
+
+| Stage | Operation | Output |
+|:--|:--|:--|
+| **Find** | Screen clean class-centroid distances, then compare measured mean ASR−FTR on selection data | Candidate pairs and the best **evaluated** attack direction |
+| **Inject** | Optimize a shard-level trigger with soft masks, target classification, feature alignment, and TV | Modified shards, trigger bank, fitted proxy states |
+| **Attack** | Fine-tune the recipient VLM and reuse saved patterns on paired evaluation images | ASR, FTR, margin and clean accuracy under the declared protocol |
+
+**Why 26 pairs for 10 classes?** Ten classes form `10 × 9 / 2 = 45` unordered pairs.
+The local geometry run retained 26 of those pairs, yielding 52 directed candidates.
+For example, deer → airplane and airplane → deer share one distance but are different
+attacks. The number 26 is an observed screening result, not a class count or a fixed
+requirement. Candidates are not automatically evaluated attacks.
+
+## Quick start
+
+**Requirements:** Python 3.10+ and PyTorch 2.5+. Core tests were run with Python 3.10
+and PyTorch 2.5.1+cu124. Install a PyTorch build suitable for your machine.
 
 ```bash
-python -m pip install -r requirements-core.txt
-OMP_NUM_THREADS=2 python -m unittest discover -s tests_core -v
-python -m fia_core --help
+git clone https://github.com/520coder1314/FIA.git
+cd FIA
+python -m pip install -e .
+
+fia --help
+OMP_NUM_THREADS=2 python -m unittest discover -s tests -v
+python examples/smoke_test.py
 ```
 
-Run from NCFM-Lab locally, or from the root of the published core repository.
-`--output` must be a new directory. Failed runs may leave a directory; inspect it and
-use a fresh name. Never overwrite old experiment outputs.
+The smoke test uses a tiny model and generated tensors, runs on CPU, and downloads
+nothing. It checks the core interfaces; it is **not an attack-performance benchmark**.
+If using the supplied ZIP, extract it and run these commands from its `FIA/` directory.
 
-## 1. Export initial candidate pairs (no VLM fine-tuning needed)
+## Run your experiment
 
-Supply actual paths; all clean `.pt` files must contain `[images, labels]`.
-Images are float RGB in [0,1] (only <=1e-6 rounding overshoot is clipped).
-No implicit de-normalization, label remapping, or poisoned-file fallback is allowed.
+First obtain and verify the [required assets](docs/ASSETS.md). Each output directory
+must be new. Paths below are placeholders to replace with your own verified files.
+
+**1 · Export geometry candidates**
 
 ```bash
-python -m fia_core find \
+fia find \
   --dataset cifar10 \
   --shards /path/to/clean/data_20000_[0-9].pt \
   --checkpoint /path/to/resnet50_cifar10_vicreg.pth \
   --preprocess cifar10 --device cuda:0 \
-  --class-names config/fia_core/cifar10_classes.json \
-  --output runs/cifar10_find_v2
+  --class-names config/cifar10_classes.json \
+  --output runs/cifar10_find
 ```
 
-Outputs: `candidates.csv/json` (all unique pairs and eligibility), `clean_features.pt`,
-`scores_template.csv` (both eligible directions). Candidate names use the supplied
-ordered JSON label list; without it, IDs are retained rather than guessed.
-The checkpoint must strictly match the bundled VICReg ResNet50; no random/partial
-backbone fallback is permitted. The 3x3/7x7 input architecture follows weight shape.
+Inspect `candidates.csv` and `candidates.json`. The latter records cutoffs and hashes.
+`scores_template.csv` lists eligible directions; it contains no invented attack scores.
 
-For CIFAR-100, Imagenette and COCO: use `--dataset cifar100|imagenette|coco`, their
-actual clean shards and verified ordered label lists. Choose `--preprocess imagenet`
-for the declared ImageNet-normalized 256→224 route. Dataset name alone does not
-silently decide checkpoint preprocessing. Verify the checkpoint's intended route.
-A changed preprocessing route defines a new experiment, not a historical replay.
-
-## 2. Prepare independent evaluation sets BEFORE candidate evaluation
-
-Prepare `images.csv` with `path,label` rows for real evaluation images. Paths must
-exist. `split` stratifies by class and checks content hashes against duplicates.
+**2 · Separate selection from final evaluation**
 
 ```bash
-python -m fia_core split --images images.csv --fraction 0.5 --seed 42 \
-  --output runs/evaluation_split_v2
+fia split --images /path/to/images.csv --fraction 0.5 --seed 42 \
+  --output runs/evaluation_split
 ```
 
-Use ONLY `selection.json` for candidate outcomes. Keep `test.json` untouched until
-pair selection is frozen. Previously used images cannot become a retrospective
-holdout merely by rerunning this command. Prefer unused data for independent claims.
+The input CSV has `path,label` columns. Evaluate candidate outcomes only on
+`selection.json`; reserve `test.json` until the direction and settings are fixed.
+Splitting previously used data after selection does not create independent evidence.
 
-## 3. Inject a candidate and evaluate it on selection data
-
-`--modify-shards` uses zero-based positions in the explicit `--shards` list.
-Other shards are copied byte-for-byte. Example direction only; not a claimed winner:
+**3 · Construct a candidate artifact**
 
 ```bash
-python -m fia_core inject \
+fia inject \
   --shards /path/to/clean/data_20000_[0-9].pt \
   --checkpoint /path/to/resnet50_cifar10_vicreg.pth \
-  --preprocess cifar10 --device cuda:0 --source 4 --target 0 \
-  --modify-shards 0 1 2 3 4 --items 10 --head-epochs 150 --steps 4500 \
-  --epsilon 0.15 --quality-mode stop_gradient --seed 42 \
-  --output runs/candidate_4_0_v2
+  --preprocess cifar10 --device cuda:0 \
+  --source 4 --target 0 --modify-shards 0 1 2 3 4 --items 10 \
+  --head-epochs 150 --steps 4500 --epsilon 0.15 \
+  --quality-mode stop_gradient --seed 42 \
+  --output runs/candidate_4_0
 ```
 
-Output includes clean+modified `data_20000_*.pt`, per-shard masks/deltas/patterns,
-`trigger_bank.pt` (modified-shard order), fitted proxy state and manifest.
-Only selected source labels change. All chosen shards must have sufficient source
-items and at least one target item; missing inputs stop the run.
-Feed the shards to your existing VLM training pipeline. For evaluation, use
-`fia_core.core.apply_bank` after the declared resize and before the VLM processor,
-with indices in the fixed base-class order. Preserve original evaluation labels.
-Do NOT feed the extra `*_bank.pt` / `*_proxy.pt` files into the training dataset.
+This example direction is not asserted to be the best. `--modify-shards` refers to
+zero-based positions in the supplied file list. Other shards are copied unchanged.
+For new experiments using differentiable appearance constraints, explicitly choose
+`--quality-mode differentiable` and report the changed method.
 
-## 4. Select by measured margin, then evaluate on held-out test data
+**4 · Measure, select, and test**
 
-Copy template to a separate scores CSV; remove unevaluated rows. At least two
-eligible directions and the same seed set per direction are required.
-Fields: `source,target,seed,split,split_sha256,asr,ftr`.
-ASR/FTR are percentages (0–100); split must be `selection` and split_sha256 must be
-SHA256 of the exact `selection.json`. Scores must come from actual paired inference.
+Use your downstream training/evaluation pipeline to obtain paired ASR/FTR for each
+evaluated candidate with matching seeds and budgets. Then:
 
 ```bash
-sha256sum runs/evaluation_split_v2/selection.json
-python -m fia_core select --candidates runs/cifar10_find_v2/candidates.json \
-  --scores runs/selection_scores.csv \
-  --selection-split runs/evaluation_split_v2/selection.json \
-  --output runs/selected_v2
+fia select --candidates runs/cifar10_find/candidates.json \
+  --scores /path/to/selection_scores.csv \
+  --selection-split runs/evaluation_split/selection.json \
+  --output runs/selected
 ```
 
-This reports best among evaluated candidates, not a global optimum. Only then use
-the independent test split for final reporting. Across datasets, export their own
-candidate lists; do not copy CIFAR-10 centroids or selection outcomes.
+`selected.json` identifies the highest mean-margin direction among those actually
+evaluated. Final testing uses the reserved test set. Detailed score schemas,
+preprocessing, trigger reuse, and cross-dataset instructions are in the
+[reproduction guide](docs/REPRODUCING.md).
 
-## Minimal publication scope
+## Repository layout
 
-Only core Python, CLI, tests, this guide, label list and dependency declaration are
-published. No weights, distilled data, predictions, manuscript, credentials, legacy
-baseline repositories or personal server paths are included. The adapted VICReg
-ResNet file retains its original copyright and MIT license (`fia_core/LICENSE.vicreg`).
+```text
+FIA/
+├── README.md                  # Start here
+├── pyproject.toml             # Installable package and `fia` command
+├── requirements.txt
+├── fia/
+│   ├── core.py                # Proxy, masks, objectives, injection, trigger reuse
+│   ├── __main__.py            # Find / split / inject / select
+│   ├── resnet.py              # VICReg backbone
+│   └── LICENSE.vicreg         # Preserved third-party license
+├── config/cifar10_classes.json
+├── examples/smoke_test.py     # CPU-only interface check
+├── tests/                     # Core and selection tests
+├── docs/                      # Assets, protocols, changes, Chinese introduction
+└── assets/                    # Versioned framework artwork
+```
 
-## Candidate counts are not class counts
+## Reproducibility and attribution
 
-CIFAR-10 has 10 classes, giving 10×9/2 = 45 unordered pairs and 90 directed
-source-target choices. The local geometry run retained 26 of the 45 unordered
-pairs (52 directed candidates). These are candidates, not 52 evaluated attacks
-or a measured best direction. See `fia_core/README.md` for the Chinese explanation.
+- Explicit preprocessing; backbone parameters **and BN buffers** remain fixed.
+- Strict checkpoint loading; no silent random-weight fallback.
+- Candidate selection uses empirical margin, not maximum feature distance.
+- Run manifests record input/checkpoint/code hashes and settings.
+- Revised behavior is documented separately from historical manuscript evidence.
+- No weights, datasets, server credentials, or unrelated baseline repositories are included.
+
+The VICReg ResNet implementation retains its original copyright and MIT license
+in [`fia/LICENSE.vicreg`](fia/LICENSE.vicreg). Existing historical baseline results
+are not changed by this release. See [reproducibility notes](docs/REPRODUCIBILITY.md)
+for the validation scope and remaining external dependencies.
