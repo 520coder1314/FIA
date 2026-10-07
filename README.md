@@ -132,3 +132,10 @@ Only core Python, CLI, tests, this guide, label list and dependency declaration 
 published. No weights, distilled data, predictions, manuscript, credentials, legacy
 baseline repositories or personal server paths are included. The adapted VICReg
 ResNet file retains its original copyright and MIT license (`fia_core/LICENSE.vicreg`).
+
+## Candidate counts are not class counts
+
+CIFAR-10 has 10 classes, giving 10×9/2 = 45 unordered pairs and 90 directed
+source-target choices. The local geometry run retained 26 of the 45 unordered
+pairs (52 directed candidates). These are candidates, not 52 evaluated attacks
+or a measured best direction. See `fia_core/README.md` for the Chinese explanation.
