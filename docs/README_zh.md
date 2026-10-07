@@ -1,6 +1,6 @@
 # FIA 使用说明
 
-FIA 表示 **Find—Inject—Attack**。本仓库是精简发布版本，提供候选类对筛选、按实测 margin 选择方向、固定代理注入和触发器复用。
+FIA 表示 **Find—Inject—Attack**。本仓库是精简发布版本，提供几何初筛、ResNet 全候选评分、Top-k 筛选、VLM 代理确认、固定代理注入和触发器复用。
 
 ## 从哪里开始
 
@@ -14,7 +14,15 @@ FIA 表示 **Find—Inject—Attack**。本仓库是精简发布版本，提供�
 
 CIFAR-10 有10个类别，组合成45个无向类对。此前本地运行保留26对，即52个有向候选。
 鹿→飞机与飞机→鹿是不同攻击方向。此数量只是几何筛选输出，不代表已经运行52项攻击实验。
-“最佳类对”指已评估候选中平均 ASR−FTR 最高的方向，不宣称全局最优。
+“最佳类对”指小模型 Top-k 候选中，在 VLM 代理上平均 ASR−FTR 最高的方向。
+
+## 两级筛选
+
+几何筛选参数为 q_l、q_u，实验配置为0.30、0.90。全部合格方向都需要候选注入和 ResNet 训练评分。取 Top-k（k≥2，实验配置3），再用 Janus-Pro-7B 代理微调评估全部入围方向。两级都只使用训练选择集，最终测试集保持独立。
+
+`python -m fia.score_resnet` 提供 ResNet-34 候选评分；`fia select --stage small --top-k 3` 导出 shortlist.json；`fia select --stage vlm --shortlist ...` 输出 selected.json。完整命令见 [两级 Find 操作步骤](CASCADED_FIND.md)。Janus 的 SWIFT 训练沿用外部运行程序。
+
+作者确认论文实验使用上述两级流程。ResNet-34 训练3轮，采用42、3407、2026三个种子；两级使用一致的数据、触发器应用、选择集和评分协议。模型专属的优化器和输入处理分别记录。
 
 ## 复现范围
 
@@ -24,4 +32,4 @@ CIFAR-10 有10个类别，组合成45个无向类对。此前本地运行保留2
 
 ## 框架图
 
-首页暂放本地已有的2026-10-06确认版，并明确标注日期。后来手绘版的原图尚未提供本地路径，因此没有把旧图冒充最新版。
+首页框架图（[assets/framework.png](../assets/framework.png)）为作者修订版：攻击者筛选更易受攻击的类对（如 {deer, airplane}），向蒸馏数据注入后门触发器，云端 VLM 经过多轮下游微调后，对带触发器的输入返回目标类别（"Airplane."）。旧版框架图保留在 `assets/framework_archived.png`。

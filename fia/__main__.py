@@ -115,11 +115,11 @@ def find(args):
     # Both directions need empirical scoring; distances do not select the winner.
     with (args.output / "scores_template.csv").open("w", newline="") as f:
         w = csv.writer(f)
-        w.writerow(["source", "target", "seed", "split", "split_sha256", "asr", "ftr"])
+        w.writerow(["stage", "source", "target", "seed", "split", "split_sha256", "asr", "ftr"])
         for r in result["pairs"]:
             if r["eligible"]:
                 for a, b in [(r["source"], r["target"]), (r["target"], r["source"])]:
-                    w.writerow([a, b, "", "selection", "", "", ""])
+                    w.writerow(["small", a, b, "", "selection", "", "", ""])
     print(
         f"[FIND] {result['undirected_kept']}/{result['undirected_total']} undirected pairs; no empirical winner yet"
     )
@@ -135,10 +135,31 @@ def select(args):
     split = json.loads(split_path.read_text())
     if split.get("role") != "selection":
         raise ValueError("Selection split required")
+    stage = args.stage
+    if stage == "small":
+        if args.shortlist is not None:
+            raise ValueError("Small stage cannot consume a shortlist")
+        if not 2 <= args.top_k <= len(allowed):
+            raise ValueError("Require 2 <= top-k <= eligible direction count")
+        expected = allowed
+        shortlist = None
+    else:
+        if args.shortlist is None:
+            raise ValueError("VLM stage requires --shortlist")
+        shortlist = json.loads(Path(args.shortlist).read_text())
+        if (shortlist.get("stage") != "small"
+            or shortlist.get("candidate_sha256") != digest(args.candidates)
+            or shortlist.get("selection_split_sha256") != digest(split_path)):
+            raise ValueError("Shortlist provenance mismatch")
+        expected = {(v["source"], v["target"]) for v in shortlist["shortlist"]}
+        if len(expected) != shortlist["top_k"] or len(expected) < 2 or not expected <= allowed:
+            raise ValueError("Invalid shortlist")
     by_pair = {}
     seen = set()
     with open(args.scores, newline="") as f:
         for row in csv.DictReader(f):
+            if row.get("stage") != stage:
+                raise ValueError("Score stage mismatch")
             a, b, seed = int(row["source"]), int(row["target"]), int(row["seed"])
             if (a, b) not in allowed:
                 raise ValueError("Scored pair outside candidate interval")
@@ -153,8 +174,8 @@ def select(args):
             if not (0 <= asr <= 100 and 0 <= ftr <= 100):
                 raise ValueError("ASR/FTR must be percent in [0,100]")
             by_pair.setdefault((a, b), {})[seed] = asr - ftr
-    if len(by_pair) < 2:
-        raise ValueError("At least two evaluated directions required for comparison")
+    if set(by_pair) != expected:
+        raise ValueError(f"Incomplete or extra {stage} directions: missing={sorted(expected-set(by_pair))}, extra={sorted(set(by_pair)-expected)}")
     seeds = next(iter(by_pair.values())).keys()
     if any(v.keys() != seeds for v in by_pair.values()):
         raise ValueError("All evaluated pairs need identical seed sets")
@@ -170,18 +191,21 @@ def select(args):
         ],
         key=lambda r: (-r["mean_margin"], r["source"], r["target"]),
     )
-    write(
-        args.output / "selected.json",
-        {
-            "selected": ranked[0],
-            "ranking": ranked,
-            "candidate_sha256": digest(args.candidates),
-            "scores_sha256": digest(args.scores),
-            "selection_split_sha256": digest(split_path),
-            "scope": "best among evaluated directions only",
-        },
-    )
-    print("[SELECT]", ranked[0])
+    result = {
+        "stage": stage, "proxy_model": args.proxy_model,
+        "ranking": ranked,
+        "candidate_sha256": digest(args.candidates),
+        "scores_sha256": digest(args.scores),
+        "selection_split_sha256": digest(split_path),
+    }
+    if stage == "small":
+        result.update(top_k=args.top_k, shortlist=ranked[:args.top_k],
+                      scope="Top-k over all geometrically eligible directions")
+        write(args.output / "shortlist.json", result)
+    else:
+        result.update(selected=ranked[0], shortlist_sha256=digest(args.shortlist),
+                      scope="best VLM mean margin within the small-model shortlist")
+        write(args.output / "selected.json", result)
 
 
 def split(args):
@@ -343,6 +367,10 @@ def main():
                 choices=["stop_gradient", "differentiable"],
             )
     q = sub.add_parser("select")
+    q.add_argument("--stage", required=True, choices=["small", "vlm"])
+    q.add_argument("--proxy-model", required=True)
+    q.add_argument("--top-k", type=int, default=3)
+    q.add_argument("--shortlist", type=Path)
     q.add_argument("--candidates", required=True, type=Path)
     q.add_argument("--scores", required=True, type=Path)
     q.add_argument("--selection-split", required=True, type=Path)

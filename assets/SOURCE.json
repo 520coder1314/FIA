@@ -1,6 +1,7 @@
 {
-  "status": "archived_confirmed_20261006; latest hand-drawn original pending",
+  "status": "framework.png is the author-confirmed revised version (2026-10-07); archived pair retained for history",
   "files": {
+    "framework.png": "57a3388315a9cade779ffc158ff895e4ac8edabc5c42db97c10eab9c5db52d32",
     "framework_archived.png": "0c04fbda8eeeeb7e3988d05812377128e75ebf338113dbb972d2c7db7b470de7",
     "framework_archived.svg": "400462fd6afc6b6578ead958f8236c4dfc2ff1390c32def52298370eaece7338"
   }

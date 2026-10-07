@@ -19,18 +19,18 @@ class SelectionTests(unittest.TestCase):
             )
             s.write_text(json.dumps({"role": "selection", "images": []}))
             rows = [
-                ["source", "target", "seed", "split", "split_sha256", "asr", "ftr"],
-                [0, 1, 42, "selection", digest(s), 95, 50],
-                [1, 0, 42, "selection", digest(s), 80, 0],
+                ["stage", "source", "target", "seed", "split", "split_sha256", "asr", "ftr"],
+                ["small", 0, 1, 42, "selection", digest(s), 95, 50],
+                ["small", 1, 0, 42, "selection", digest(s), 80, 0],
             ]
             with f.open("w", newline="") as stream:
                 csv.writer(stream).writerows(rows)
-            a = SimpleNamespace(candidates=c, selection_split=s, scores=f, output=p)
+            a = SimpleNamespace(candidates=c, selection_split=s, scores=f, output=p, stage="small", top_k=2, shortlist=None, proxy_model="ResNet34")
             select(a)
             self.assertEqual(
-                json.loads((p / "selected.json").read_text())["selected"]["source"], 1
+                json.loads((p / "shortlist.json").read_text())["shortlist"][0]["source"], 1
             )
-            rows[1][3] = "test"
+            rows[1][4] = "test"
             with f.open("w", newline="") as stream:
                 csv.writer(stream).writerows(rows)
             with self.assertRaises(ValueError):

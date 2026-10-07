@@ -1,18 +1,24 @@
 <div align="center">
 
-# FIA
+# 🎯 FIA
 ### Find · Inject · Attack
 
 **Backdoor learning and persistence in downstream fine-tuning on distilled data**
 
-[Quick start](#quick-start) · [Method](#method) · [Reproduce](docs/REPRODUCING.md) · [中文说明](docs/README_zh.md)
+[![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![PyTorch](https://img.shields.io/badge/PyTorch-2.5%2B-EE4C2C?logo=pytorch&logoColor=white)](https://pytorch.org/)
+[![License](https://img.shields.io/badge/License-MIT-green.svg)](fia/LICENSE.vicreg)
+[![Tests](https://img.shields.io/badge/Tests-unittest-brightgreen)](tests/)
+[![Stars](https://img.shields.io/github/stars/520coder1314/FIA?style=social)](https://github.com/520coder1314/FIA)
+
+[🚀 Quick start](#quick-start) · [📖 Method](#method) · [🔁 Reproduce](docs/REPRODUCING.md) · [🇨🇳 中文说明](docs/README_zh.md)
 
 </div>
 
 <p align="center">
-  <img src="assets/framework_archived.png" width="100%" alt="FIA overview: selecting a class pair, injecting a backdoor into distilled data, and evaluating downstream behavior" />
+  <img src="assets/framework.png" width="100%" alt="FIA framework: the attacker finds a better class pair, injects a backdoor into distilled data, and the cloud VLM fine-tuned on it returns the target label to the user" />
 </p>
-<p align="center"><sub>Archived author-confirmed overview (October 6, 2026). The subsequent hand-drawn revision is pending the original image file; this is not labeled as that revision.</sub></p>
+<p align="center"><sub>FIA framework. The attacker selects a vulnerable class pair, injects a backdoor trigger into the distilled data, and after multi-epoch downstream fine-tuning the cloud VLM answers with the target class ("Airplane.") for triggered inputs.</sub></p>
 
 FIA selects a candidate class pair, constructs masked backdoor patterns in distilled
 images, and evaluates their effect after downstream vision–language model fine-tuning.
@@ -25,13 +31,13 @@ measured-margin selection, fixed-proxy injection, and saved-pattern reuse.
 > are not bundled. See [required assets](docs/ASSETS.md) and
 > [implementation changes](docs/REPRODUCIBILITY.md).
 
-## Method
+## 📖 Method
 
 | Stage | Operation | Output |
 |:--|:--|:--|
-| **Find** | Screen clean class-centroid distances, then compare measured mean ASR−FTR on selection data | Candidate pairs and the best **evaluated** attack direction |
-| **Inject** | Optimize a shard-level trigger with soft masks, target classification, feature alignment, and TV | Modified shards, trigger bank, fitted proxy states |
-| **Attack** | Fine-tune the recipient VLM and reuse saved patterns on paired evaluation images | ASR, FTR, margin and clean accuracy under the declared protocol |
+| 🔍 **Find** | Screen geometry → score every direction with ResNet → Top-k → VLM-proxy confirmation | Candidate pairs and the best **evaluated** attack direction |
+| 💉 **Inject** | Optimize a shard-level trigger with soft masks, target classification, feature alignment, and TV | Modified shards, trigger bank, fitted proxy states |
+| ⚔️ **Attack** | Fine-tune the recipient VLM and reuse saved patterns on paired evaluation images | ASR, FTR, margin and clean accuracy under the declared protocol |
 
 **Why 26 pairs for 10 classes?** Ten classes form `10 × 9 / 2 = 45` unordered pairs.
 The local geometry run retained 26 of those pairs, yielding 52 directed candidates.
@@ -39,7 +45,7 @@ For example, deer → airplane and airplane → deer share one distance but are 
 attacks. The number 26 is an observed screening result, not a class count or a fixed
 requirement. Candidates are not automatically evaluated attacks.
 
-## Quick start
+## 🚀 Quick start
 
 **Requirements:** Python 3.10+ and PyTorch 2.5+. Core tests were run with Python 3.10
 and PyTorch 2.5.1+cu124. Install a PyTorch build suitable for your machine.
@@ -58,7 +64,7 @@ The smoke test uses a tiny model and generated tensors, runs on CPU, and downloa
 nothing. It checks the core interfaces; it is **not an attack-performance benchmark**.
 If using the supplied ZIP, extract it and run these commands from its `FIA/` directory.
 
-## Run your experiment
+## 🧪 Run your experiment
 
 First obtain and verify the [required assets](docs/ASSETS.md). Each output directory
 must be new. Paths below are placeholders to replace with your own verified files.
@@ -107,24 +113,15 @@ zero-based positions in the supplied file list. Other shards are copied unchange
 For new experiments using differentiable appearance constraints, explicitly choose
 `--quality-mode differentiable` and report the changed method.
 
-**4 · Measure, select, and test**
+**4 · Rank all candidates with ResNet, then confirm Top-k with Janus**
 
-Use your downstream training/evaluation pipeline to obtain paired ASR/FTR for each
-evaluated candidate with matching seeds and budgets. Then:
+Follow [Cascaded Find](docs/CASCADED_FIND.md). `fia.score_resnet` trains and scores
+candidate classifiers; `fia select --stage small --top-k 3` requires full candidate
+coverage and exports a shortlist. `fia select --stage vlm --shortlist ...` requires
+Janus scores for every shortlisted direction and exports the winner. Both stages
+rank mean ASR−FTR on training-selection data. Final testing uses separate images.
 
-```bash
-fia select --candidates runs/cifar10_find/candidates.json \
-  --scores /path/to/selection_scores.csv \
-  --selection-split runs/evaluation_split/selection.json \
-  --output runs/selected
-```
-
-`selected.json` identifies the highest mean-margin direction among those actually
-evaluated. Final testing uses the reserved test set. Detailed score schemas,
-preprocessing, trigger reuse, and cross-dataset instructions are in the
-[reproduction guide](docs/REPRODUCING.md).
-
-## Repository layout
+## 🗂️ Repository layout
 
 ```text
 FIA/
@@ -143,7 +140,7 @@ FIA/
 └── assets/                    # Versioned framework artwork
 ```
 
-## Reproducibility and attribution
+## ♻️ Reproducibility and attribution
 
 - Explicit preprocessing; backbone parameters **and BN buffers** remain fixed.
 - Strict checkpoint loading; no silent random-weight fallback.

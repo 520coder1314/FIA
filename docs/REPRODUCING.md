@@ -106,25 +106,12 @@ Feed the shards to your existing VLM training pipeline. For evaluation, use
 with indices in the fixed base-class order. Preserve original evaluation labels.
 Do NOT feed the extra `*_bank.pt` / `*_proxy.pt` files into the training dataset.
 
-## 4. Select by measured margin, then evaluate on held-out test data
+## 4. Cascaded selection and held-out testing
 
-Copy template to a separate scores CSV; remove unevaluated rows. At least two
-eligible directions and the same seed set per direction are required.
-Fields: `source,target,seed,split,split_sha256,asr,ftr`.
-ASR/FTR are percentages (0–100); split must be `selection` and split_sha256 must be
-SHA256 of the exact `selection.json`. Scores must come from actual paired inference.
-
-```bash
-sha256sum runs/evaluation_split_v2/selection.json
-python -m fia select --candidates runs/cifar10_find_v2/candidates.json \
-  --scores runs/selection_scores.csv \
-  --selection-split runs/evaluation_split_v2/selection.json \
-  --output runs/selected_v2
-```
-
-This reports best among evaluated candidates, not a global optimum. Only then use
-the independent test split for final reporting. Across datasets, export their own
-candidate lists; do not copy CIFAR-10 centroids or selection outcomes.
+Follow [CASCADED_FIND.md](CASCADED_FIND.md). Small-model scoring must cover ALL
+eligible directions; VLM scoring must cover the complete Top-k shortlist. The
+previous arbitrary-subset score interface has been replaced by explicit
+`--stage small` and `--stage vlm` selection, with stage-specific provenance.
 
 ## Minimal publication scope
 
