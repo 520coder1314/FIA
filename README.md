@@ -8,7 +8,9 @@
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.5%2B-EE4C2C?logo=pytorch&logoColor=white)](https://pytorch.org/)
 [![VICReg license](https://img.shields.io/badge/VICReg-MIT-green.svg)](fia/LICENSE.vicreg)
-[![Tests](https://img.shields.io/badge/Tests-unittest-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-unittest-brightgreen?logo=checkmarx&logoColor=white)](tests/)
+[![Last commit](https://img.shields.io/github/last-commit/520coder1314/FIA?color=blue&logo=git&logoColor=white)](https://github.com/520coder1314/FIA/commits/main)
+[![Repo size](https://img.shields.io/github/repo-size/520coder1314/FIA?color=orange&logo=github)](https://github.com/520coder1314/FIA)
 [![Stars](https://img.shields.io/github/stars/520coder1314/FIA?style=social)](https://github.com/520coder1314/FIA)
 
 [🚀 Quick start](#quick-start) · [📖 Method](#method) · [🔁 Reproduce](docs/REPRODUCING.md) · [🇨🇳 中文说明](docs/README_zh.md)
@@ -31,7 +33,7 @@ configured-direction validation, fixed-proxy injection, and saved-pattern reuse.
 > are not bundled. See [required assets](docs/ASSETS.md) and
 > [implementation changes](docs/REPRODUCIBILITY.md).
 
-## Method
+## 📖 Method
 
 | Stage | Operation | Output |
 |:--|:--|:--|
@@ -45,7 +47,7 @@ For example, deer → airplane and airplane → deer share one distance but are 
 attacks. The number 26 is an observed screening result, not a class count or a fixed
 requirement. Candidates are not automatically evaluated attacks.
 
-## Quick start
+## 🚀 Quick start
 
 **Requirements:** Python 3.10+ and PyTorch 2.5+. Core tests were run with Python 3.10
 and PyTorch 2.5.1+cu124. Install a PyTorch build suitable for your machine.
@@ -69,7 +71,7 @@ If using the supplied ZIP, extract it and run these commands from its `FIA/` dir
 First obtain and verify the [required assets](docs/ASSETS.md). Each output directory
 must be new. Paths below are placeholders to replace with your own verified files.
 
-**1 · Export geometry candidates**
+**📐 1 · Export geometry candidates**
 
 ```bash
 fia find \
@@ -84,7 +86,7 @@ fia find \
 Inspect `candidates.csv` and `candidates.json`. The latter records cutoffs and hashes.
 `scores_template.csv` lists eligible directions; it contains no invented attack scores.
 
-**2 · Separate selection from final evaluation**
+**✂️ 2 · Separate selection from final evaluation**
 
 ```bash
 fia split --images /path/to/images.csv --fraction 0.5 --seed 42 \
@@ -95,7 +97,7 @@ The input CSV has `path,label` columns. Evaluate candidate outcomes only on
 `selection.json`; reserve `test.json` until the direction and settings are fixed.
 Splitting previously used data after selection does not create independent evidence.
 
-**3 · Construct the fixed-direction artifact**
+**💉 3 · Construct the fixed-direction artifact**
 
 ```bash
 fia inject \
@@ -113,7 +115,7 @@ zero-based positions in the supplied file list. Other shards are copied unchange
 For new experiments using differentiable appearance constraints, explicitly choose
 `--quality-mode differentiable` and report the changed method.
 
-**4 · Assess the fixed direction and evaluate the downstream model**
+**📊 4 · Assess the fixed direction and evaluate the downstream model**
 
 Follow [Fixed-direction Find](docs/FIXED_DIRECTION_FIND.md). The direction is an
 experiment input, not an automatically selected winner. Verify its membership in
@@ -145,12 +147,12 @@ FIA/
 
 ## ♻️ Reproducibility and attribution
 
-- Explicit preprocessing; backbone parameters **and BN buffers** remain fixed.
-- Strict checkpoint loading; no silent random-weight fallback.
-- Geometry determines eligibility; the configured direction is fixed before evaluation.
-- Run manifests record input/checkpoint/code hashes and settings.
-- Revised behavior is documented separately from historical manuscript evidence.
-- No weights, datasets, server credentials, or unrelated baseline repositories are included.
+- ✅ Explicit preprocessing; backbone parameters **and BN buffers** remain fixed.
+- ✅ Strict checkpoint loading; no silent random-weight fallback.
+- ✅ Geometry determines eligibility; the configured direction is fixed before evaluation.
+- ✅ Run manifests record input/checkpoint/code hashes and settings.
+- ✅ Revised behavior is documented separately from historical manuscript evidence.
+- ✅ No weights, datasets, server credentials, or unrelated baseline repositories are included.
 
 The VICReg ResNet implementation retains its original copyright and MIT license
 in [`fia/LICENSE.vicreg`](fia/LICENSE.vicreg). Existing historical baseline results
