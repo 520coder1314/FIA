@@ -2,15 +2,16 @@
 
 This is the revised core implementation for new experiments. It lives in `fia/`.
 Historical scripts and artifacts are not included in this core release.
-**Published manuscript numbers are not outputs of this revision.** New results must be
-identified by their own manifest. No FLBA implementation or baseline measurements are
+Each run must be identified by its input artifacts, implementation profile and manifest.
+The core alone does not regenerate published tables without the external experiment assets. No FLBA implementation or baseline measurements are
 changed by this release.
 
 ## What is aligned
 
 - Find: frozen clean proxy centroids; Euclidean distances; quantiles over unique
   undirected pairs; both directions exported. Geometry does not select a winner.
-  Candidate injection/fine-tuning must be evaluated; `select` then maximizes mean ASR−FTR.
+  The configured direction is checked against the candidate pool; its VLM assessment
+  reports ASR, FTR and margin without automatically choosing a winner.
 - Inject: one tensor per modified shard, per-image soft channel-gating masks,
   target classification, direction/norm/raw alignment, TV, projected Adam.
 - Attack: complete shard set, relabeled selected items, cyclic saved-pattern reuse.
@@ -53,7 +54,7 @@ python -m fia find \
   --checkpoint /path/to/resnet50_cifar10_vicreg.pth \
   --preprocess cifar10 --device cuda:0 \
   --class-names config/cifar10_classes.json \
-  --output runs/cifar10_find_v2
+  --output runs/cifar10_find
 ```
 
 Outputs: `candidates.csv/json` (all unique pairs and eligibility), `clean_features.pt`,
@@ -82,10 +83,11 @@ Use ONLY `selection.json` for candidate outcomes. Keep `test.json` untouched unt
 pair selection is frozen. Previously used images cannot become a retrospective
 holdout merely by rerunning this command. Prefer unused data for independent claims.
 
-## 3. Inject a candidate and evaluate it on selection data
+## 3. Validate and inject the configured direction
 
 `--modify-shards` uses zero-based positions in the explicit `--shards` list.
-Other shards are copied byte-for-byte. Example direction only; not a claimed winner:
+Other shards are copied byte-for-byte. First perform the eligibility check in
+[Fixed-direction Find](FIXED_DIRECTION_FIND.md). The following is the CIFAR-10 deer → airplane configuration:
 
 ```bash
 python -m fia inject \
@@ -106,12 +108,13 @@ Feed the shards to your existing VLM training pipeline. For evaluation, use
 with indices in the fixed base-class order. Preserve original evaluation labels.
 Do NOT feed the extra `*_bank.pt` / `*_proxy.pt` files into the training dataset.
 
-## 4. Cascaded selection and held-out testing
+## 4. Fixed-direction proxy assessment and held-out testing
 
-Follow [CASCADED_FIND.md](CASCADED_FIND.md). Small-model scoring must cover ALL
-eligible directions; VLM scoring must cover the complete Top-k shortlist. The
-previous arbitrary-subset score interface has been replaced by explicit
-`--stage small` and `--stage vlm` selection, with stage-specific provenance.
+Follow [FIXED_DIRECTION_FIND.md](FIXED_DIRECTION_FIND.md). Assess the fixed artifact
+on training-selection images with an accessible VLM, then evaluate independent test
+images. Preserve three-epoch endpoints and continuation trajectories separately.
+The optional `fia.score_resnet` and `fia select` interfaces are documented as
+[historical search utilities](CASCADED_FIND.md), not mandatory manuscript stages.
 
 ## Minimal publication scope
 

@@ -7,7 +7,7 @@
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.5%2B-EE4C2C?logo=pytorch&logoColor=white)](https://pytorch.org/)
-[![License](https://img.shields.io/badge/License-MIT-green.svg)](fia/LICENSE.vicreg)
+[![VICReg license](https://img.shields.io/badge/VICReg-MIT-green.svg)](fia/LICENSE.vicreg)
 [![Tests](https://img.shields.io/badge/Tests-unittest-brightgreen)](tests/)
 [![Stars](https://img.shields.io/github/stars/520coder1314/FIA?style=social)](https://github.com/520coder1314/FIA)
 
@@ -18,12 +18,12 @@
 <p align="center">
   <img src="assets/framework.png" width="100%" alt="FIA framework: the attacker finds a better class pair, injects a backdoor into distilled data, and the cloud VLM fine-tuned on it returns the target label to the user" />
 </p>
-<p align="center"><sub>FIA framework. The attacker selects a vulnerable class pair, injects a backdoor trigger into the distilled data, and after multi-epoch downstream fine-tuning the cloud VLM answers with the target class ("Airplane.") for triggered inputs.</sub></p>
+<p align="center"><sub>FIA framework. The attacker configures a class pair from the geometric candidate pool, injects a backdoor trigger into the distilled data, and after multi-epoch downstream fine-tuning the cloud VLM answers with the target class ("Airplane.") for triggered inputs.</sub></p>
 
-FIA selects a candidate class pair, constructs masked backdoor patterns in distilled
+FIA screens class-pair geometry, constructs masked backdoor patterns for a configured direction in distilled
 images, and evaluates their effect after downstream vision–language model fine-tuning.
 This repository provides the **revised research core**: explicit pair screening,
-measured-margin selection, fixed-proxy injection, and saved-pattern reuse.
+configured-direction validation, fixed-proxy injection, and saved-pattern reuse.
 
 > **Release scope.** This is a revised implementation for new experiments. It does
 > not reproduce the manuscript's historical numbers automatically. Distilled data,
@@ -31,11 +31,11 @@ measured-margin selection, fixed-proxy injection, and saved-pattern reuse.
 > are not bundled. See [required assets](docs/ASSETS.md) and
 > [implementation changes](docs/REPRODUCIBILITY.md).
 
-## 📖 Method
+## Method
 
 | Stage | Operation | Output |
 |:--|:--|:--|
-| 🔍 **Find** | Screen geometry → score every direction with ResNet → Top-k → VLM-proxy confirmation | Candidate pairs and the best **evaluated** attack direction |
+| 🔍 **Find** | Screen geometry → verify a configured direction belongs to the candidate pool | Eligible class pairs and a fixed dataset-specific direction |
 | 💉 **Inject** | Optimize a shard-level trigger with soft masks, target classification, feature alignment, and TV | Modified shards, trigger bank, fitted proxy states |
 | ⚔️ **Attack** | Fine-tune the recipient VLM and reuse saved patterns on paired evaluation images | ASR, FTR, margin and clean accuracy under the declared protocol |
 
@@ -45,7 +45,7 @@ For example, deer → airplane and airplane → deer share one distance but are 
 attacks. The number 26 is an observed screening result, not a class count or a fixed
 requirement. Candidates are not automatically evaluated attacks.
 
-## 🚀 Quick start
+## Quick start
 
 **Requirements:** Python 3.10+ and PyTorch 2.5+. Core tests were run with Python 3.10
 and PyTorch 2.5.1+cu124. Install a PyTorch build suitable for your machine.
@@ -95,7 +95,7 @@ The input CSV has `path,label` columns. Evaluate candidate outcomes only on
 `selection.json`; reserve `test.json` until the direction and settings are fixed.
 Splitting previously used data after selection does not create independent evidence.
 
-**3 · Construct a candidate artifact**
+**3 · Construct the fixed-direction artifact**
 
 ```bash
 fia inject \
@@ -108,18 +108,21 @@ fia inject \
   --output runs/candidate_4_0
 ```
 
-This example direction is not asserted to be the best. `--modify-shards` refers to
+This CIFAR-10 example uses the configured deer → airplane direction. Verify eligibility as described in [Fixed-direction Find](docs/FIXED_DIRECTION_FIND.md); use a separate direction and class mapping for each dataset. `--modify-shards` refers to
 zero-based positions in the supplied file list. Other shards are copied unchanged.
 For new experiments using differentiable appearance constraints, explicitly choose
 `--quality-mode differentiable` and report the changed method.
 
-**4 · Rank all candidates with ResNet, then confirm Top-k with Janus**
+**4 · Assess the fixed direction and evaluate the downstream model**
 
-Follow [Cascaded Find](docs/CASCADED_FIND.md). `fia.score_resnet` trains and scores
-candidate classifiers; `fia select --stage small --top-k 3` requires full candidate
-coverage and exports a shortlist. `fia select --stage vlm --shortlist ...` requires
-Janus scores for every shortlisted direction and exports the winner. Both stages
-rank mean ASR−FTR on training-selection data. Final testing uses separate images.
+Follow [Fixed-direction Find](docs/FIXED_DIRECTION_FIND.md). The direction is an
+experiment input, not an automatically selected winner. Verify its membership in
+the geometric candidate pool before injection. Assess its paired ASR/FTR on
+training-selection images using an accessible VLM, then evaluate the fixed artifact
+on independent test images and saved fine-tuning checkpoints.
+
+The ResNet/Top-k commands remain available as [historical search utilities](docs/CASCADED_FIND.md).
+They are not required by the current manuscript workflow.
 
 ## 🗂️ Repository layout
 
@@ -144,7 +147,7 @@ FIA/
 
 - Explicit preprocessing; backbone parameters **and BN buffers** remain fixed.
 - Strict checkpoint loading; no silent random-weight fallback.
-- Candidate selection uses empirical margin, not maximum feature distance.
+- Geometry determines eligibility; the configured direction is fixed before evaluation.
 - Run manifests record input/checkpoint/code hashes and settings.
 - Revised behavior is documented separately from historical manuscript evidence.
 - No weights, datasets, server credentials, or unrelated baseline repositories are included.

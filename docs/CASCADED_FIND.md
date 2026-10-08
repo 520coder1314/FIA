@@ -1,10 +1,12 @@
-# Cascaded Find: geometry → ResNet → Top-k → VLM proxy
+# Historical search utility: cascaded Find
 
-The recipient architecture is unknown to the attacker. ResNet is the small
-selection proxy; Janus-Pro-7B is the accessible VLM selection proxy. Evaluation
-on Janus uses the proxy architecture; other excluded architectures test transfer.
-The manuscript uses this cascade, as confirmed by the author. The small proxy is
-ResNet-34, trained for three epochs over seeds 42, 3407 and 2026.
+This document preserves the optional ResNet → Top-k → VLM search commands used in
+exploratory experiments. It is **not the current manuscript protocol**. For the
+active workflow, use [Fixed-direction Find](FIXED_DIRECTION_FIND.md).
+
+The example small-model schedule below is illustrative, not a statement that the
+current manuscript obtains its reported results through this cascade. Legacy
+commands remain available to read and reproduce archived search configurations.
 
 ## 1. Geometry and data split
 
