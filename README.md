@@ -147,7 +147,7 @@ FIA/
 
 ## ♻️ Reproducibility and attribution
 
-- ✅ Explicit preprocessing; backbone parameters **and BN buffers** remain fixed.
+- ✅ Separate classifier and feature preprocessing; backbone weights stay fixed, while BN buffers update during head fitting and remain fixed during trigger optimization.
 - ✅ Strict checkpoint loading; no silent random-weight fallback.
 - ✅ Geometry determines eligibility; the configured direction is fixed before evaluation.
 - ✅ Run manifests record input/checkpoint/code hashes and settings.

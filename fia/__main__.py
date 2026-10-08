@@ -83,7 +83,7 @@ def metadata(args):
         "input_sha256": {str(p): digest(p) for p in args.shards},
         "code_sha256": {p.name: digest(p) for p in Path(__file__).parent.glob("*.py")},
         "preprocess": args.preprocess,
-        "backbone_buffers": "frozen_eval",
+        "backbone_buffers": "head_fit_updates_trigger_eval" if args.command == "inject" else "frozen_eval",
         "historical_results_reproduced": False,
     }
 
@@ -268,6 +268,14 @@ def injection(args):
             "source": args.source,
             "target": args.target,
             "quality_mode": args.quality_mode,
+            "injection_profile": "tdsc-shard-bn-v1" if args.quality_mode == "stop_gradient" else "differentiable-quality-variant-v1",
+            "bn_policy": "update_head_fit_eval_trigger",
+            "classifier_preprocess": "resize256_crop224_imagenet",
+            "mask_preprocess": "feature_helper_then_classifier",
+            "alignment_preprocess": args.preprocess,
+            "mask_normalization": "minmax_resize_minmax",
+            "ssim": "uniform7_sample_covariance_rgb_mean",
+            "scheduler_patience": 1000,
             "steps": args.steps,
             "items_per_shard": args.items,
             "epsilon": args.epsilon,

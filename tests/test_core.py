@@ -9,6 +9,7 @@ from fia.core import (
     appearance,
     inject,
     apply_bank,
+    objective,
 )
 
 
@@ -29,13 +30,51 @@ class CoreTests(unittest.TestCase):
         self.x = torch.rand(4, 3, 32, 32)
         self.y = torch.tensor([0, 0, 1, 1])
 
-    def test_backbone_buffers_and_weights_frozen(self):
-        before = {k: v.clone() for k, v in self.proxy.backbone.state_dict().items()}
-        head = self.proxy.head.weight.detach().clone()
+    def test_backbone_weights_frozen_bn_updates_only_during_fit(self):
+        weights = {k: v.detach().clone() for k, v in self.proxy.backbone.named_parameters()}
+        before = self.proxy.backbone.bn.running_mean.clone()
         fit_head(self.proxy, self.x, self.y, epochs=2, batch_size=2)
-        for k, v in before.items():
-            self.assertTrue(torch.equal(v, self.proxy.backbone.state_dict()[k]), k)
-        self.assertFalse(torch.equal(head, self.proxy.head.weight))
+        for k, v in self.proxy.backbone.named_parameters():
+            self.assertTrue(torch.equal(weights[k], v), k)
+        self.assertFalse(torch.equal(before, self.proxy.backbone.bn.running_mean))
+        self.assertEqual(int(self.proxy.backbone.bn.num_batches_tracked), 4)
+        buffers = {k: v.clone() for k, v in self.proxy.backbone.named_buffers()}
+        inject(self.proxy, self.x[:2], self.x[2:], 0, 1, steps=2)
+        for k, v in self.proxy.backbone.named_buffers():
+            self.assertTrue(torch.equal(buffers[k], v), k)
+
+    def test_separate_preprocessing_paths(self):
+        self.proxy.eval()
+        seen = []
+        hook = self.proxy.backbone.register_forward_pre_hook(lambda m, a: seen.append(a[0].detach().clone()))
+        self.proxy(self.x)
+        self.proxy.features(self.x)
+        channel_gate_mask(self.proxy, self.x, 0)
+        hook.remove()
+        self.assertEqual(seen[0].shape[-2:], (224, 224))
+        self.assertEqual(seen[1].shape[-2:], (32, 32))
+        expected = self.proxy.classifier_input(self.proxy.feature_input(self.x))
+        self.assertTrue(torch.equal(seen[2], expected))
+
+    def test_objective_matches_equations_and_detaches_quality(self):
+        self.proxy.eval()
+        clean = self.x[:2]
+        mask = torch.ones(2, 1, 32, 32)
+        delta = torch.full_like(clean[:1], 0.04, requires_grad=True)
+        with torch.no_grad():
+            center = self.proxy.features(self.x[2:]).mean(0)
+        poisoned = (clean + mask * delta).clamp(0, 1)
+        z = self.proxy.features(poisoned)
+        cls = torch.nn.functional.cross_entropy(self.proxy(poisoned), torch.ones(2, dtype=torch.long))
+        direction = ((z / (z.norm(dim=1, keepdim=True) + 1e-12) - center / (center.norm() + 1e-12)) ** 2).sum(1).mean()
+        norm = (z.norm(dim=1) / (center.norm() + 1e-12) - 1).square().mean()
+        raw = ((z - center).square().sum(1) + 1e-12).sqrt().mean()
+        expected = .45 * cls + .45 * (.6 * direction + .4 * norm + .01 * raw)
+        actual = objective(self.proxy, clean, mask, delta, 1, center, "stop_gradient")
+        self.assertTrue(torch.allclose(actual, expected + .1 * appearance(poisoned, clean).detach()))
+        ga = torch.autograd.grad(actual, delta, retain_graph=True)[0]
+        ge = torch.autograd.grad(expected, delta)[0]
+        self.assertTrue(torch.allclose(ga, ge))
 
     def test_gradient_quality_and_mask(self):
         a = (self.x + 0.1).clamp(0, 1).requires_grad_()

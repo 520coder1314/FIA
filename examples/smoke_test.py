@@ -33,7 +33,7 @@ def main():
     )
     assert candidates["undirected_total"] == 1
     assert result["patterns"].abs().max() <= 0.050001
-    print("PASS: pair screening, frozen-proxy head training, and bounded injection.")
+    print("PASS: pair screening, frozen-weight head training with BN updates, and bounded injection.")
     print("Generated tensors only; no downstream VLM or attack-performance claim.")
 
 

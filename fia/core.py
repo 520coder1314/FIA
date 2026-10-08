@@ -6,7 +6,7 @@ from torch.nn import functional as F
 
 
 class Proxy(nn.Module):
-    """One preprocessing route; frozen parameters AND running buffers."""
+    """Frozen weights; BN updates during head fitting, eval buffers during injection."""
 
     def __init__(self, backbone, dim, classes, preprocess):
         super().__init__()
@@ -23,12 +23,7 @@ class Proxy(nn.Module):
         self.register_buffer("mean", torch.tensor(mean).view(1, 3, 1, 1))
         self.register_buffer("std", torch.tensor(std).view(1, 3, 1, 1))
 
-    def train(self, mode=True):
-        super().train(mode)
-        self.backbone.eval()
-        return self
-
-    def features(self, x):
+    def feature_input(self, x):
         if self.preprocess == "imagenet":
             if x.shape[-2:] != (224, 224):
                 x = F.interpolate(x, (256, 256), mode="bilinear", align_corners=False)
@@ -37,10 +32,20 @@ class Proxy(nn.Module):
             raise ValueError(
                 "cifar10 preprocessing requires 32x32 inputs; do not silently resize"
             )
-        return self.backbone((x - self.mean) / self.std)
+        return (x - self.mean) / self.std
+
+    def features(self, x):
+        return self.backbone(self.feature_input(x))
+
+    def classifier_input(self, x):
+        x = F.interpolate(x, (256, 256), mode="bilinear", align_corners=False)
+        x = x[:, :, 16:240, 16:240]
+        mean = x.new_tensor([0.485, 0.456, 0.406])[None, :, None, None]
+        std = x.new_tensor([0.229, 0.224, 0.225])[None, :, None, None]
+        return (x - mean) / std
 
     def forward(self, x):
-        return self.head(self.features(x))
+        return self.head(self.backbone(self.classifier_input(x)))
 
 
 def fit_head(proxy, x, y, epochs=150, batch_size=32):
@@ -48,13 +53,11 @@ def fit_head(proxy, x, y, epochs=150, batch_size=32):
     opt = torch.optim.SGD(
         proxy.head.parameters(), lr=0.01, momentum=0.9, weight_decay=1e-4
     )
-    # Features are fixed, so cache once; equivalent to forwarding frozen eval backbone each epoch.
-    with torch.no_grad():
-        z = torch.cat([proxy.features(b) for b in x.split(batch_size)])
+    # Recompute minibatches: fitting updates shared backbone BN buffers.
     for _ in range(epochs):
         for ix in torch.randperm(len(y), device=y.device).split(batch_size):
             opt.zero_grad(set_to_none=True)
-            F.cross_entropy(proxy.head(z[ix]), y[ix]).backward()
+            F.cross_entropy(proxy(x[ix]), y[ix]).backward()
             opt.step()
     proxy.eval()
 
@@ -105,11 +108,13 @@ def channel_gate_mask(proxy, x, label, floor=0.05):
     hook = layer.register_forward_hook(lambda m, i, o: captured.append(o))
     try:
         raw = x.detach().clone().requires_grad_(True)
-        score = proxy(raw)[:, label].sum()
+        score = proxy(proxy.feature_input(raw))[:, label].sum()
         act = captured[0]
         (grad,) = torch.autograd.grad(score, act)
         gate = (grad.clamp_min(0).sum((2, 3), keepdim=True) > 0).to(act.dtype)
-        cam = (act * gate).sum(1, keepdim=True).relu()
+        cam = (act * gate).sum(1, keepdim=True)
+        cam = cam - cam.amin((2, 3), keepdim=True)
+        cam = cam / (cam.amax((2, 3), keepdim=True) + 1e-8)
         cam = F.interpolate(cam, x.shape[-2:], mode="bilinear", align_corners=False)
         cam = cam - cam.amin((2, 3), keepdim=True)
         cam = cam / (cam.amax((2, 3), keepdim=True) + 1e-8)
@@ -119,22 +124,19 @@ def channel_gate_mask(proxy, x, label, floor=0.05):
 
 
 def appearance(a, b):
-    """Differentiable PSNR/SSIM score (11x11 Gaussian, valid window, RGB mean).
+    """PSNR/SSIM hinges: 7x7 uniform SSIM, sample covariance, RGB mean.
 
-    Explicit new implementation; not numerically claimed identical to historical skimage scores.
+    Matches skimage's default SSIM window/covariance convention on RGB images.
+    The caller detaches the score for the manuscript optimization profile.
     """
-    if min(a.shape[-2:]) < 11:
-        raise ValueError("SSIM requires at least 11 pixels per dimension")
+    if min(a.shape[-2:]) < 7:
+        raise ValueError("SSIM requires at least 7 pixels per dimension")
     mse = (a - b).square().mean((1, 2, 3)).clamp_min(1e-12)
     psnr = -10 * torch.log10(mse)
-    t = torch.arange(11, device=a.device, dtype=a.dtype) - 5
-    g = torch.exp(-t.square() / (2 * 1.5**2))
-    g = g / g.sum()
-    w = (g[:, None] * g[None, :]).expand(a.shape[1], 1, 11, 11)
-    filt = lambda x: F.conv2d(x, w, groups=a.shape[1])
+    filt = lambda x: F.avg_pool2d(x, kernel_size=7, stride=1)
     ma, mb = filt(a), filt(b)
-    va, vb = filt(a * a) - ma * ma, filt(b * b) - mb * mb
-    cov = filt(a * b) - ma * mb
+    va, vb = (filt(a * a) - ma * ma) * (49 / 48), (filt(b * b) - mb * mb) * (49 / 48)
+    cov = (filt(a * b) - ma * mb) * (49 / 48)
     ss = (
         ((2 * ma * mb + 0.01**2) * (2 * cov + 0.03**2))
         / ((ma * ma + mb * mb + 0.01**2) * (va + vb + 0.03**2))
@@ -146,10 +148,11 @@ def objective(proxy, clean, mask, delta, target, center, quality_mode):
     poisoned = (clean + mask * delta).clamp(0, 1)
     z = proxy.features(poisoned)
     cls = F.cross_entropy(
-        proxy.head(z), torch.full((len(z),), target, device=z.device, dtype=torch.long)
+        proxy(poisoned), torch.full((len(z),), target, device=z.device, dtype=torch.long)
     )
     direction = (
-        (F.normalize(z, dim=1, eps=1e-12) - F.normalize(center, dim=0, eps=1e-12))
+        (z / (z.norm(dim=1, keepdim=True) + 1e-12)
+         - center / (center.norm() + 1e-12))
         .square()
         .sum(1)
         .mean()
@@ -187,7 +190,7 @@ def inject(
     delta = nn.Parameter(torch.zeros_like(clean[:1]))
     opt = torch.optim.Adam([delta], lr=0.05, betas=(0.9, 0.999))
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        opt, factor=0.95, min_lr=1e-5
+        opt, factor=0.95, patience=1000, min_lr=1e-5
     )
     best = float("inf")
     best_delta = None

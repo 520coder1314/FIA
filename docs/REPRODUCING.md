@@ -17,14 +17,18 @@ changed by this release.
 - Attack: complete shard set, relabeled selected items, cyclic saved-pattern reuse.
   Downstream VLM training uses your existing SWIFT workflow; foundation models and
   runners are not bundled in this minimal release.
-- Backbone weights and BN buffers remain fixed during head fitting. The classifier,
-  saliency calculation and alignment all use one explicit preprocessing route.
-- The mask is the paper's channel-gating construction, not standard Grad-CAM++.
-- `--quality-mode stop_gradient` matches the current manuscript's *gradient semantics*.
-  `--quality-mode differentiable` restores a differentiable PSNR/SSIM objective as
-  an explicit alternative. It requires new evidence and a corresponding method update.
-  Neither mode is a bit-for-bit historical replay: corrected preprocessing, frozen BN,
-  Gaussian-window SSIM and an explicit optimizer schedule define the new implementation.
+- Backbone weights stay frozen. Head fitting updates shared BN buffers; trigger
+  optimization uses evaluation mode and the fitted shard-specific state.
+- Classification uses 256×256 resize, 224×224 center crop and ImageNet normalization.
+  Mask extraction applies the feature helper followed by the classifier path;
+  alignment uses the declared dataset-specific feature helper.
+- Masks use binary positive-gradient channel gates and min–max normalization both
+  before and after resizing, with a 0.05 floor. There is no extra activation ReLU.
+- `--quality-mode stop_gradient` is the manuscript profile. PSNR and uniform-window
+  SSIM contribute to the optimization score, scheduler and best-iterate selection,
+  but do not contribute gradients. `differentiable` is an explicit alternative.
+- Adam uses lr=0.05, betas=(0.9,0.999), gradient clipping=50 and projection.
+  ReduceLROnPlateau uses factor=0.95, patience=1000 and min_lr=1e-5.
 
 ## Install and test
 
